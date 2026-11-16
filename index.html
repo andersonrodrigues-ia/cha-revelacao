@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Jogo da Velha Revelação</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: uma tela por vez (palpite → tabuleiro → revelação), coluna central que cabe no celular sem rolar */
+:root{
+  --bg:#FBF7FF; --ink:#2B2340; --muted:#776F8E; --line:#E6DDF3; --card:#FFFFFF;
+  --pink:#EE5F98; --pink-soft:#FFE3EF; --blue:#2C77F2; --blue-deep:#1450C7; --blue-soft:#DCEAFF;
+  /* cores da vitória e da revelação: definidas pelo script na hora, para o código não entregar o segredo */
+  --win:#2B2340; --win-soft:#EEE8F7; --rv-bg:#2B2340; --rv-ink:#2B2340;
+  --display: ui-rounded,"SF Pro Rounded","Nunito","Varela Round","Arial Rounded MT Bold","Trebuchet MS",system-ui,sans-serif;
+  --body: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme: light;
+}
+html,body{height:100%}
+[hidden]{display:none!important}
+body{
+  margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  -webkit-tap-highlight-color:transparent;overflow-x:hidden;
+  background-image:
+    radial-gradient(circle at 12% 18%,var(--pink-soft) 0 70px,transparent 71px),
+    radial-gradient(circle at 92% 8%,var(--blue-soft) 0 90px,transparent 91px),
+    radial-gradient(circle at 85% 92%,var(--pink-soft) 0 80px,transparent 81px),
+    radial-gradient(circle at 6% 88%,var(--blue-soft) 0 60px,transparent 61px);
+  background-attachment:fixed;
+}
+.screen{min-height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding-block:24px;max-width:430px;margin:0 auto;text-align:center}
+.eyebrow{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(34px,10vw,46px);line-height:1.02;margin:0;text-wrap:balance}
+h1 .b{color:var(--blue)} h1 .p{color:var(--pink)} h1 .ou{color:var(--muted);font-size:.55em;display:block;margin:4px 0}
+.lead{margin:0;color:var(--muted);line-height:1.5;max-width:34ch}
+.field{width:100%;display:flex;flex-direction:column;gap:8px;text-align:left}
+label{font-size:14px;font-weight:600}
+input{font:inherit;font-size:18px;padding:14px 16px;border-radius:14px;border:2px solid var(--line);background:var(--card);color:var(--ink);outline:none}
+input:focus{border-color:var(--ink)}
+.choices{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.choice{font:inherit;font-family:var(--display);font-weight:800;font-size:22px;padding:18px 8px;border-radius:18px;cursor:pointer;border:3px solid transparent;display:flex;flex-direction:column;align-items:center;gap:4px;transition:transform .15s}
+.choice span{font-size:34px}
+.choice.m{background:var(--blue-soft);color:var(--blue-deep)}
+.choice.f{background:var(--pink-soft);color:#B8336B}
+.choice[aria-pressed="true"]{transform:scale(1.04)}
+.choice.m[aria-pressed="true"]{border-color:var(--blue)}
+.choice.f[aria-pressed="true"]{border-color:var(--pink)}
+.btn{font:inherit;font-family:var(--display);font-weight:800;font-size:19px;width:100%;padding:16px;border:0;border-radius:16px;background:var(--ink);color:#fff;cursor:pointer}
+.btn:disabled{opacity:.35;cursor:default}
+.btn:focus-visible,.choice:focus-visible,.cell:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
+.tally{font-size:14px;color:var(--muted)}
+.tally b{color:var(--ink)}
+
+/* Tabuleiro */
+.vs{display:flex;align-items:center;justify-content:center;gap:10px;font-family:var(--display);font-weight:800;font-size:18px;flex-wrap:wrap}
+.vs .tag{padding:6px 12px;border-radius:999px;background:var(--card);border:2px solid var(--line);max-width:46vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vs .x{color:var(--ink)}
+.round{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.status{font-family:var(--display);font-weight:800;font-size:22px;min-height:1.3em;margin:0}
+.boardwrap{position:relative;width:min(86vw,360px);max-width:100%}
+.board{width:100%;aspect-ratio:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:10px;box-sizing:border-box;background:var(--line);border-radius:24px}
+.board.shake{animation:shake .5s}
+.cell{border:0;border-radius:16px;background:var(--card);padding:10%;cursor:pointer;display:grid;place-items:center;transition:background .5s,transform .3s}
+.cell:disabled{cursor:default}
+.cell.win{background:var(--win-soft);animation:pulse .9s ease-in-out infinite alternate}
+.mk{width:100%;height:100%;overflow:visible}
+.mk path,.mk circle{fill:none;stroke-width:13;stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:100;animation:draw .32s ease-out forwards;transition:stroke .7s}
+.mk path:nth-child(2){animation-delay:.14s}
+.mk.p path,.mk.p circle{stroke:var(--pink)}
+.mk.b path,.mk.b circle{stroke:var(--blue)}
+.cell.win .mk path,.cell.win .mk circle{stroke:var(--win)}
+.stamp{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.stamp div{font-family:var(--display);font-weight:900;font-size:clamp(40px,14vw,64px);color:var(--ink);background:var(--card);padding:6px 20px;border-radius:18px;border:4px solid var(--ink);transform:rotate(-10deg);animation:stamp .45s cubic-bezier(.2,1.6,.4,1)}
+.msg{margin:0;color:var(--muted);line-height:1.45;max-width:32ch}
+
+/* Revelação */
+.reveal{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+  background:var(--rv-bg);color:#fff;
+  padding:max(24px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(24px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
+  animation:fadein .5s}
+.reveal canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.rv{position:relative;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;max-width:420px}
+.rv .congrats{font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:.06em;text-transform:uppercase;opacity:0;animation:up .6s .3s forwards}
+.rv .baby{font-size:84px;line-height:1;opacity:0;animation:pop .7s .6s cubic-bezier(.2,1.6,.4,1) forwards}
+.rv h2{font-family:var(--display);font-weight:900;font-size:clamp(52px,17vw,88px);line-height:.95;margin:0;text-shadow:0 6px 0 rgba(0,0,0,.15);opacity:0;animation:pop .8s 1s cubic-bezier(.2,1.6,.4,1) forwards}
+.rv .res{font-size:18px;line-height:1.45;opacity:0;animation:up .6s 1.7s forwards;max-width:30ch}
+.rv .res b{font-family:var(--display)}
+.rv .placar{font-size:16px;line-height:1.45;opacity:0;animation:up .6s 2s forwards;max-width:32ch;background:rgba(255,255,255,.16);border-radius:14px;padding:12px 16px;margin:0}
+.rv .placar:empty{display:none}
+.rv .btn{background:#fff;color:var(--rv-ink);margin-top:8px;opacity:0;animation:up .6s 2.3s forwards;max-width:320px}
+
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.06)}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-5px)}80%{transform:translateX(5px)}}
+@keyframes stamp{from{transform:rotate(-10deg) scale(2.2);opacity:0}to{transform:rotate(-10deg) scale(1);opacity:1}}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+@keyframes up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:scale(.3)}to{opacity:1;transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;animation-delay:0s!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main id="telaPalpite" class="screen">
+  <div class="eyebrow">Chá revelação</div>
+  <h1><span class="b">Menino</span><span class="ou">ou</span><span class="p">menina?</span></h1>
+  <p class="lead">Deixe seu palpite e jogue o jogo da velha contra o bebê. Quando alguém ganhar, o segredo é revelado.</p>
+  <div class="field">
+    <label for="nome">Seu nome</label>
+    <input id="nome" type="text" maxlength="24" autocomplete="off" placeholder="Ex.: Tia Rosa">
+  </div>
+  <div class="choices" role="group" aria-label="Seu palpite">
+    <button type="button" class="choice m" id="optMenino" data-v="menino" aria-pressed="false"><span>💙</span>Menino</button>
+    <button type="button" class="choice f" id="optMenina" data-v="menina" aria-pressed="false"><span>💗</span>Menina</button>
+  </div>
+  <button type="button" class="btn" id="btnComecar" disabled>Começar o jogo</button>
+  <div class="tally" id="tally"></div>
+</main>
+
+<main id="telaJogo" class="screen" hidden>
+  <div class="round" id="round">Partida 1</div>
+  <div class="vs"><span class="tag x" id="tagNome">Você</span> × <span class="tag">Bebê 👶</span></div>
+  <p class="status" id="status">Sua vez</p>
+  <div class="boardwrap">
+    <div class="board" id="board"></div>
+    <div class="stamp" id="stamp" hidden><div>VELHA! 👵</div></div>
+  </div>
+  <p class="msg" id="msg">Você joga com o ✕ e começa. As cores mudam a cada jogada, então não dá para adivinhar pelo tabuleiro.</p>
+  <button type="button" class="btn" id="btnDeNovo" hidden>Jogar de novo</button>
+</main>
+
+<section class="reveal" id="telaRevela" hidden aria-live="polite">
+  <canvas id="confete"></canvas>
+  <div class="rv">
+    <div class="congrats">Parabéns!</div>
+    <div class="baby" id="bebe"></div>
+    <h2 id="titulo"></h2>
+    <p class="res" id="res"></p>
+    <p class="placar" id="placar"></p>
+    <button type="button" class="btn" id="btnProximo">Próximo palpite</button>
+  </div>
+</section>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const LINHAS = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  // Cor de cada jogada: ✕ e ◯ alternam entre rosa e azul, para o tabuleiro não entregar nada
+  const COR = ['p','b','b','p','p','b','b','p','p'];
+  // Placar on-line (Supabase). O nome sai do celular já criptografado com a chave pública abaixo;
+  // só quem tem a chave privada (fora do site) consegue ler quem acertou e quem errou.
+  const SUPA = 'https://ukojqkouhaxfolpyvzzd.supabase.co/rest/v1/itens_comprados';
+  const SUPA_KEY = 'sb_publishable_2SeJQ5XbIgQr00NidinJow_EcTdjGP8';
+  const PREFIXO = 'cr|';
+  const CHAVE_PUBLICA = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4ApJyIyO74TDsLdden9xlD1grWJLbrYecQGL7cUIb1/tAD0NmFkpSC8uKZHFaWbRktYnj/VHrJvfMfneavgH/SHFSG+/C+TyfasCYo1PPICxyRhBvYsIbD1hrN3njTiRuo4Uo4QJSPFqqg4oLeNXlMk0nPzm3NpkMT3q7l6E7IXLV9ko9FsF/2ot7GZMToXoKMEoQZDApk6TmT0l3uLwPnIs+RTSzroky5cjiyrthrDufMWJTsGt0OujZ6Ukw3D88WenIjxexw/83ceOqnVQ8okgeqmyfXFTB4qrqWyZ6RbmCButTDr3x8gurPvke5/YVlkDpiOVL/ivk8+LPa5eUwIDAQAB';
+  const cab = { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY };
+  const filtro = p => 'item_id=like.' + encodeURIComponent(p) + '*';
+
+  // O resultado fica codificado para não aparecer no código-fonte
+  const S = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('eyJyIjoibWVuaW5vIiwidCI6IsOJIE1FTklOTyEiLCJkIjoidW0gbWVuaW5pbmhvIiwiZSI6IvCfkbbwn4+78J+SmSIsImgiOiLwn5KZIiwidyI6IiMyQzc3RjIiLCJ3cyI6IiNEQ0VBRkYiLCJnIjoicmFkaWFsLWdyYWRpZW50KGNpcmNsZSBhdCA1MCUgMzAlLCM1QjlDRkYgMCUsIzJDNzdGMiA0NSUsIzE0NTBDNyAxMDAlKSIsImsiOiIjMTQ1MEM3IiwiY2YiOlsiI0ZGRkZGRiIsIiNCRkQ4RkYiLCIjOERCOEZGIiwiIzBFM0U5RSIsIiNGRkU1OEEiXX0='), c => c.charCodeAt(0))));
+  const raiz = document.documentElement.style;
+  raiz.setProperty('--win', S.w); raiz.setProperty('--win-soft', S.ws);
+  raiz.setProperty('--rv-bg', S.g); raiz.setProperty('--rv-ink', S.k);
+
+  let nome = '', palpite = null, partida = 1;
+  let tab, jogada, fim, vezHumano;
+
+  // Identifica o aparelho, para cada pessoa contar uma vez só (vale o primeiro palpite)
+  function aparelho(){
+    let id = null;
+    try { id = localStorage.getItem('cr-aparelho'); } catch(e){}
+    if (!id){
+      id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2));
+      try { localStorage.setItem('cr-aparelho', id); } catch(e){}
+    }
+    return id;
+  }
+  async function codigoPessoa(){
+    const dados = new TextEncoder().encode(aparelho() + '|' + nome.toLowerCase().replace(/\s+/g, ' '));
+    const h = new Uint8Array(await crypto.subtle.digest('SHA-256', dados));
+    return [...h.slice(0, 10)].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  async function cifrarNome(){
+    const der = Uint8Array.from(atob(CHAVE_PUBLICA), c => c.charCodeAt(0));
+    const k = await crypto.subtle.importKey('spki', der, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+    const c = new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, k, new TextEncoder().encode(nome.slice(0, 40))));
+    return btoa(String.fromCharCode(...c));
+  }
+  async function contar(){
+    const r = await fetch(SUPA + '?select=comprado&' + filtro(PREFIXO), { headers: cab });
+    if (!r.ok) throw new Error('placar');
+    const l = await r.json();
+    const m = l.filter(x => x.comprado).length; // comprado = palpite "menino"
+    return { menino: m, menina: l.length - m, total: l.length };
+  }
+
+  // Grava o palpite uma vez por pessoa (aparelho + nome); devolve o palpite que ficou registrado
+  let envio = null;
+  function enviarPalpite(){
+    if (!envio) envio = (async () => {
+      const id = PREFIXO + await codigoPessoa() + '|';
+      const r = await fetch(SUPA + '?select=comprado&' + filtro(id), { headers: cab });
+      if (!r.ok) throw new Error('consulta');
+      const ja = await r.json();
+      if (ja.length) return ja[0].comprado ? 'menino' : 'menina';
+      const ins = await fetch(SUPA, {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, cab),
+        body: JSON.stringify({ item_id: id + await cifrarNome(), comprado: palpite === 'menino', atualizado_em: new Date().toISOString() })
+      });
+      if (!ins.ok) throw new Error('gravação');
+      return palpite;
+    })().catch(() => { envio = null; return null; });
+    return envio;
+  }
+
+  function mostrarPlacar(){
+    $('tally').textContent = '';
+    contar().then(d => {
+      if (d.total) $('tally').innerHTML = 'Palpites até agora: <b>💙 ' + d.menino + '</b> · <b>💗 ' + d.menina + '</b>';
+    }).catch(() => {});
+  }
+
+  const pessoas = n => n === 1 ? '1 pessoa' : n + ' pessoas';
+  function frasePlacar(d, acertou){
+    const meu = acertou ? d.acertos : d.erros, outro = acertou ? d.erros : d.acertos;
+    const verbo = acertou ? ['acertou', 'acertaram'] : ['errou', 'erraram'];
+    const verboOutro = acertou ? ['errou', 'erraram'] : ['acertou', 'acertaram'];
+    const pct = Math.round(meu / d.total * 100);
+    const parte1 = meu <= 1 ? 'Até agora, só você ' + verbo[0] : 'Você e mais ' + pessoas(meu - 1) + ' ' + verbo[1];
+    const parte2 = outro === 0 ? 'ninguém ' + verboOutro[0] : pessoas(outro) + ' ' + (outro === 1 ? verboOutro[0] : verboOutro[1]);
+    return parte1 + '; ' + parte2 + '.<br><b>Você está entre os ' + pct + '% que ' + verbo[1] + '.</b>';
+  }
+
+  // ---------- Tela de palpite ----------
+  function validar(){ $('btnComecar').disabled = !($('nome').value.trim() && palpite); }
+  $('nome').addEventListener('input', validar);
+  ['optMenino','optMenina'].forEach(id => $(id).addEventListener('click', e => {
+    palpite = e.currentTarget.dataset.v;
+    $('optMenino').setAttribute('aria-pressed', palpite === 'menino');
+    $('optMenina').setAttribute('aria-pressed', palpite === 'menina');
+    validar();
+  }));
+  $('btnComecar').addEventListener('click', () => {
+    nome = $('nome').value.trim();
+    envio = null; enviarPalpite();
+    partida = 1;
+    $('tagNome').textContent = nome + ' ✕';
+    $('telaPalpite').hidden = true; $('telaJogo').hidden = false;
+    novaPartida();
+  });
+
+  // ---------- Regras ----------
+  function vencedor(b){
+    for (const l of LINHAS) if (b[l[0]] && b[l[0]] === b[l[1]] && b[l[0]] === b[l[2]]) return { s: b[l[0]], linha: l };
+    return null;
+  }
+  const livres = b => b.map((v,i) => v ? -1 : i).filter(i => i >= 0);
+  function completa(b, i, s){ b[i] = s; const w = vencedor(b); b[i] = null; return !!w; }
+
+  // 1ª partida: o bebê joga para dar velha.
+  // risco = 1 se a pessoa ainda consegue um final com vencedor (qualquer lado), 0 se a velha está garantida.
+  // Modo 'normal': a pessoa ganha quando pode e bloqueia quando precisa (com esse jogador a velha é garantida);
+  // modo 'livre': qualquer jogada, usado só para desempatar quando ela foge do normal.
+  const memo = new Map();
+  function jogadasPessoa(b, modo){
+    const L = livres(b);
+    if (modo === 'livre') return L;
+    const ganha = L.filter(i => completa(b, i, 'X')); if (ganha.length) return ganha;
+    const bloqueia = L.filter(i => completa(b, i, 'O')); if (bloqueia.length) return bloqueia;
+    return L;
+  }
+  function risco(b, vez, modo){
+    if (vencedor(b)) return 1;
+    const L = livres(b); if (!L.length) return 0;
+    const k = b.map(v => v || '.').join('') + vez + modo;
+    if (memo.has(k)) return memo.get(k);
+    let r;
+    if (vez === 'X'){ r = 0; for (const i of jogadasPessoa(b, modo)){ b[i] = 'X'; r = Math.max(r, risco(b, 'O', modo)); b[i] = null; if (r) break; } }
+    else { r = 1; for (const i of L){ b[i] = 'O'; r = Math.min(r, risco(b, 'X', modo)); b[i] = null; if (!r) break; } }
+    memo.set(k, r); return r;
+  }
+  function jogadaVelha(b){
+    let melhor = 99, cand = [];
+    for (const i of livres(b)){
+      const ganhariaAgora = completa(b, i, 'O');
+      b[i] = 'O';
+      const v = ganhariaAgora ? 50 : risco(b, 'X', 'normal') * 10 + risco(b, 'X', 'livre');
+      b[i] = null;
+      if (v < melhor){ melhor = v; cand = [i]; } else if (v === melhor) cand.push(i);
+    }
+    return cand[Math.floor(Math.random() * cand.length)];
+  }
+
+  // Da 2ª partida em diante: o bebê deixa alguém ganhar (de preferência quem está jogando)
+  function criaAmeaca(b, i, s){
+    b[i] = s;
+    const ok = LINHAS.some(l => l.includes(i) && l.filter(k => b[k] === s).length === 2 && l.some(k => !b[k]));
+    b[i] = null; return ok;
+  }
+  function jogadaDecisiva(b){
+    const L = livres(b);
+    const ameacasHumano = L.filter(i => completa(b, i, 'X'));
+    if (!ameacasHumano.length){
+      const ganha = L.find(i => completa(b, i, 'O'));
+      if (ganha !== undefined) return ganha;
+    }
+    let cand = L.filter(i => !ameacasHumano.includes(i));
+    if (!cand.length) cand = L;
+    const boas = cand.filter(i => criaAmeaca(b, i, 'O'));
+    const pool = boas.length ? boas : cand;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  // ---------- Tabuleiro ----------
+  function marca(s, cor){
+    return s === 'X'
+      ? '<svg class="mk ' + cor + '" viewBox="0 0 100 100" aria-hidden="true"><path pathLength="100" d="M24 24L76 76"/><path pathLength="100" d="M76 24L24 76"/></svg>'
+      : '<svg class="mk ' + cor + '" viewBox="0 0 100 100" aria-hidden="true"><circle pathLength="100" cx="50" cy="50" r="27"/></svg>';
+  }
+  function novaPartida(){
+    tab = Array(9).fill(null); jogada = 0; fim = false; vezHumano = true;
+    $('round').textContent = 'Partida ' + partida;
+    $('status').textContent = 'Sua vez, ' + nome;
+    $('stamp').hidden = true; $('btnDeNovo').hidden = true;
+    $('msg').textContent = partida === 1
+      ? 'Você joga com o ✕ e começa. As cores mudam a cada jogada, então não dá para adivinhar pelo tabuleiro.'
+      : 'Agora vai! Quem ganhar descobre o segredo.';
+    const board = $('board'); board.innerHTML = ''; board.classList.remove('shake');
+    for (let i = 0; i < 9; i++){
+      const c = document.createElement('button');
+      c.type = 'button'; c.className = 'cell'; c.id = 'cel' + i;
+      c.setAttribute('aria-label', 'Casa ' + (i + 1));
+      c.addEventListener('click', () => clicar(i));
+      board.appendChild(c);
+    }
+  }
+  function colocar(i, s){
+    tab[i] = s;
+    const c = $('cel' + i);
+    c.innerHTML = marca(s, COR[jogada]); c.disabled = true;
+    c.setAttribute('aria-label', 'Casa ' + (i + 1) + ': ' + (s === 'X' ? 'xis' : 'bola'));
+    jogada++;
+  }
+  function clicar(i){
+    if (fim || !vezHumano || tab[i]) return;
+    colocar(i, 'X');
+    if (verificar()) return;
+    vezHumano = false;
+    $('status').textContent = 'O bebê está pensando…';
+    setTimeout(() => {
+      const j = partida === 1 ? jogadaVelha(tab) : jogadaDecisiva(tab);
+      colocar(j, 'O');
+      if (verificar()) return;
+      vezHumano = true;
+      $('status').textContent = 'Sua vez, ' + nome;
+    }, 600);
+  }
+  function verificar(){
+    const w = vencedor(tab);
+    if (w){
+      fim = true;
+      document.querySelectorAll('.cell').forEach(c => c.disabled = true);
+      w.linha.forEach(k => $('cel' + k).classList.add('win'));
+      $('status').textContent = w.s === 'X' ? nome + ' ganhou!' : 'O bebê ganhou!';
+      $('msg').textContent = 'Olha a cor da linha…';
+      setTimeout(() => revelar(w.s === 'X'), 1800);
+      return true;
+    }
+    if (!livres(tab).length){
+      fim = true;
+      $('board').classList.add('shake');
+      $('stamp').hidden = false;
+      $('status').textContent = 'Deu velha!';
+      $('msg').textContent = partida === 1
+        ? 'O bebê ainda não quer contar o segredo. Joga de novo!'
+        : 'Velha de novo! O bebê está fazendo charme. Mais uma!';
+      $('btnDeNovo').hidden = false;
+      return true;
+    }
+    return false;
+  }
+  $('btnDeNovo').addEventListener('click', () => { partida++; novaPartida(); });
+
+  // ---------- Revelação ----------
+  function revelar(humanoGanhou){
+    const acertou = palpite === S.r;
+    $('bebe').textContent = S.e; $('titulo').textContent = S.t;
+    $('res').innerHTML = (humanoGanhou ? 'Você venceu o bebê e descobriu: ' : 'O bebê ganhou e contou o segredo: ')
+      + 'vem aí <b>' + S.d + '</b>! '
+      + (acertou ? '<br><b>' + esc(nome) + ', você acertou! 🎉</b>' : '<br>' + esc(nome) + ', seu palpite foi ' + palpite + '. Quase! 😄');
+    $('placar').innerHTML = '';
+    enviarPalpite().then(async registrado => {
+      if (!registrado) return;
+      const c = await contar();
+      if (!c.total) return;
+      const acertos = c[S.r];
+      // vale o primeiro palpite registrado deste aparelho com este nome
+      $('placar').innerHTML = frasePlacar({ acertos, erros: c.total - acertos, total: c.total }, registrado === S.r);
+    }).catch(() => {});
+    $('telaJogo').hidden = true; $('telaRevela').hidden = false;
+    try { navigator.vibrate && navigator.vibrate([120, 80, 120, 80, 300]); } catch(e){}
+    fanfarra(); confete();
+  }
+  function esc(t){ const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+  $('btnProximo').addEventListener('click', () => {
+    pararConfete();
+    $('telaRevela').hidden = true; $('telaPalpite').hidden = false;
+    $('nome').value = ''; palpite = null;
+    $('optMenino').setAttribute('aria-pressed', 'false'); $('optMenina').setAttribute('aria-pressed', 'false');
+    validar(); mostrarPlacar();
+  });
+
+  function fanfarra(){
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      const ac = new AC(), t0 = ac.currentTime + 0.05;
+      [[523,0],[659,.16],[784,.32],[1047,.5],[784,.74],[1047,.9]].forEach(([f, t], n) => {
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.type = 'triangle'; o.frequency.value = f;
+        const d = n === 5 ? .9 : .22;
+        g.gain.setValueAtTime(0, t0 + t); g.gain.linearRampToValueAtTime(.18, t0 + t + .02);
+        g.gain.exponentialRampToValueAtTime(.001, t0 + t + d);
+        o.connect(g).connect(ac.destination); o.start(t0 + t); o.stop(t0 + t + d + .05);
+      });
+    } catch(e){}
+  }
+
+  let raf = null;
+  function pararConfete(){ if (raf) cancelAnimationFrame(raf); raf = null; }
+  function confete(){
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const cv = $('confete'), ctx = cv.getContext('2d'), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = cv.clientWidth, H = cv.clientHeight;
+    cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cores = S.cf;
+    const P = [];
+    for (let i = 0; i < 220; i++) P.push({
+      x: W / 2 + (Math.random() - .5) * 60, y: H * .42,
+      vx: (Math.random() - .5) * 14, vy: -Math.random() * 15 - 4,
+      w: 6 + Math.random() * 7, h: 8 + Math.random() * 10, r: Math.random() * 6, vr: (Math.random() - .5) * .3,
+      c: cores[i % cores.length], coracao: i % 9 === 0
+    });
+    const inicio = performance.now();
+    function passo(t){
+      ctx.clearRect(0, 0, W, H);
+      const continuo = t - inicio < 9000;
+      P.forEach(p => {
+        p.vy += .28; p.vx *= .99; p.vy = Math.min(p.vy, 4.5);
+        p.x += p.vx + Math.sin((t / 400) + p.r) * .6; p.y += p.vy; p.r += p.vr;
+        if (p.y > H + 20 && continuo){ p.y = -20; p.x = Math.random() * W; p.vy = Math.random() * 2; p.vx = (Math.random() - .5) * 2; }
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c;
+        if (p.coracao){ ctx.font = '18px system-ui'; ctx.fillText(S.h, -9, 6); }
+        else ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.abs(Math.cos(p.r * 2)) + 2);
+        ctx.restore();
+      });
+      if (continuo || P.some(p => p.y < H + 20)) raf = requestAnimationFrame(passo); else raf = null;
+    }
+    pararConfete(); raf = requestAnimationFrame(passo);
+  }
+
+  mostrarPlacar();
+})();
+</script>
+</body>
+</html>
