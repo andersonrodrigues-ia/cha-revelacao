@@ -219,7 +219,8 @@ input:focus{border-color:var(--ink)}
   function mostrarPlacar(){
     $('tally').textContent = '';
     contar().then(d => {
-      if (d.total) $('tally').innerHTML = 'Palpites até agora: <b>💙 ' + d.menino + '</b> · <b>💗 ' + d.menina + '</b>';
+      // só o total: mostrar o lado de cada palpite influenciaria quem ainda vai palpitar
+      if (d.total) $('tally').innerHTML = '<b>' + d.total + '</b> ' + (d.total === 1 ? 'pessoa já deu o palpite' : 'pessoas já deram o palpite');
     }).catch(() => {});
   }
 
